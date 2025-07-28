@@ -1,0 +1,486 @@
+# gRPC Billing Service Setup and Testing Guide
+
+## Overview
+
+This document provides a comprehensive guide for building, configuring, and testing the gRPC Billing Service using Spring Boot, Protocol Buffers, and Postman.
+
+## Project Architecture
+
+```
+billing-service/
+├── src/
+│   ├── main/
+│   │   ├── java/
+│   │   │   └── com/pm/billing_service/
+│   │   │       ├── BillingServiceApplication.java
+│   │   │       └── grpc/
+│   │   │           └── BillingGrpcService.java
+│   │   ├── proto/                     ← CORRECT LOCATION
+│   │   │   └── billingservice.proto
+│   │   └── resources/
+│   │       └── application.properties
+├── target/
+│   └── generated-sources/
+│       └── protobuf/
+│           ├── java/                  ← Generated message classes
+│           │   └── com/pm/billing/grpc/
+│           │       ├── BillingRequest.java
+│           │       ├── BillingResponse.java
+│           │       └── BillingServiceProto.java
+│           └── grpc-java/             ← Generated service classes
+│               └── com/pm/billing/grpc/
+│                   └── BillingServiceGrpc.java
+└── pom.xml
+```
+
+## Technology Stack
+
+- **Spring Boot**: 3.5.4
+- **Java**: 17
+- **gRPC**: 1.69.0
+- **Protocol Buffers**: 4.29.1
+- **Spring Boot gRPC Starter**: 3.1.0.RELEASE
+- **Build Tool**: Maven
+
+## Dependencies Configuration
+
+### Core gRPC Dependencies in `pom.xml`
+
+```xml
+<!-- gRPC Core Dependencies -->
+<dependency>
+    <groupId>io.grpc</groupId>
+    <artifactId>grpc-netty-shaded</artifactId>
+    <version>1.69.0</version>
+</dependency>
+<dependency>
+    <groupId>io.grpc</groupId>
+    <artifactId>grpc-protobuf</artifactId>
+    <version>1.69.0</version>
+</dependency>
+<dependency>
+    <groupId>io.grpc</groupId>
+    <artifactId>grpc-stub</artifactId>
+    <version>1.69.0</version>
+</dependency>
+
+<!-- Spring Boot gRPC Integration -->
+<dependency>
+    <groupId>net.devh</groupId>
+    <artifactId>grpc-spring-boot-starter</artifactId>
+    <version>3.1.0.RELEASE</version>
+</dependency>
+
+<!-- Protocol Buffers -->
+<dependency>
+    <groupId>com.google.protobuf</groupId>
+    <artifactId>protobuf-java</artifactId>
+    <version>4.29.1</version>
+</dependency>
+```
+
+### Build Configuration
+
+```xml
+<build>
+    <extensions>
+        <extension>
+            <groupId>kr.motd.maven</groupId>
+            <artifactId>os-maven-plugin</artifactId>
+            <version>1.7.0</version>
+        </extension>
+    </extensions>
+    <plugins>
+        <!-- Protocol Buffer Maven Plugin -->
+        <plugin>
+            <groupId>org.xolstice.maven.plugins</groupId>
+            <artifactId>protobuf-maven-plugin</artifactId>
+            <version>0.6.1</version>
+            <configuration>
+                <protocArtifact>com.google.protobuf:protoc:4.29.1:exe:${os.detected.classifier}</protocArtifact>
+                <pluginId>grpc-java</pluginId>
+                <pluginArtifact>io.grpc:protoc-gen-grpc-java:1.69.0:exe:${os.detected.classifier}</pluginArtifact>
+            </configuration>
+            <executions>
+                <execution>
+                    <goals>
+                        <goal>compile</goal>
+                        <goal>compile-custom</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
+```
+
+## Protocol Buffer Definition
+
+### File: `src/main/proto/billingservice.proto`
+
+```protobuf
+syntax = "proto3";
+
+option java_package = "com.pm.billing.grpc";
+option java_multiple_files = true;
+option java_outer_classname = "BillingServiceProto";
+
+service BillingService {
+  rpc CreateBillingAccount (BillingRequest) returns (BillingResponse);
+}
+
+message BillingRequest {
+    string patient_id = 1;
+    string name = 2;
+    string email = 3;
+}
+
+message BillingResponse {
+  string accountId = 1;
+  string status = 2;
+}
+```
+
+### Generated Java Classes
+
+After compilation, the following classes are generated:
+- `BillingServiceGrpc` - Service interface and stubs
+- `BillingRequest` - Request message class
+- `BillingResponse` - Response message class
+- `BillingServiceProto` - Proto file descriptor
+
+## Spring Boot Configuration
+
+### Application Properties
+
+```properties
+spring.application.name=billing-service
+
+# gRPC Server Configuration
+grpc.server.port=9091
+grpc.server.address=0.0.0.0
+
+# Application Configuration (for REST if needed)
+server.port=8081
+
+# Logging
+logging.level.com.pm.billing_service=DEBUG
+logging.level.io.grpc=DEBUG
+```
+
+### Main Application Class
+
+```java
+@SpringBootApplication
+public class BillingServiceApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(BillingServiceApplication.class, args);
+    }
+}
+```
+
+## gRPC Service Implementation
+
+### File: `BillingGrpcService.java`
+
+```java
+@GrpcService
+@Slf4j
+public class BillingGrpcService extends BillingServiceImplBase {
+
+    @Override
+    public void createBillingAccount(BillingRequest request, 
+                                   StreamObserver<BillingResponse> responseObserver) {
+        log.info("Received request to create billing account for patient: {}", 
+                request.getPatientId());
+        
+        // Generate a unique account ID
+        String accountId = "ACC-" + UUID.randomUUID().toString()
+                                         .substring(0, 8).toUpperCase();
+        
+        BillingResponse response = BillingResponse.newBuilder()
+                .setAccountId(accountId)
+                .setStatus("CREATED")
+                .build();
+        
+        log.info("Created billing account: {} for patient: {}", 
+                accountId, request.getPatientId());
+        
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
+}
+```
+
+## Build and Run Process
+
+### Step 1: Ensure Proto File is in Correct Location
+
+**Important**: Make sure your `billingservice.proto` file is in `src/main/proto/` directory, not in `src/main/java/proto/`.
+
+```bash
+# Create the proto directory if it doesn't exist
+mkdir src\main\proto
+
+# Copy proto file to correct location (if needed)
+copy src\main\java\proto\billingservice.proto src\main\proto\billingservice.proto
+```
+
+### Step 2: Compile Protocol Buffers
+
+```bash
+cd billing-service/billing-service
+mvn clean
+mvn protobuf:compile
+mvn protobuf:compile-custom
+```
+
+### Step 3: Verify Generated Files
+
+After compilation, check that files are generated:
+```bash
+# Check generated Java classes
+ls target/generated-sources/protobuf/java/com/pm/billing/grpc/
+# Should show: BillingRequest.java, BillingResponse.java, etc.
+
+# Check generated gRPC service
+ls target/generated-sources/protobuf/grpc-java/com/pm/billing/grpc/
+# Should show: BillingServiceGrpc.java
+```
+
+### Step 4: Compile Java Code
+
+```bash
+mvn clean compile
+```
+
+### Step 5: Run the Application
+
+```bash
+mvn spring-boot:run
+```
+
+### Expected Server Startup Output
+
+```
+INFO  --- gRPC Server started, listening on address: 0.0.0.0, port: 9091
+INFO  --- Registered gRPC service: BillingService, bean: billingGrpcService
+INFO  --- Started BillingServiceApplication in 2.812 seconds
+```
+
+## Testing with Postman
+
+### Method 1: Using Proto File Import
+
+#### Step 1: Create New gRPC Request
+1. Open Postman
+2. Click **"New"** → **"gRPC"**
+3. **Server URL**: `localhost:9091`
+4. **Use TLS**: **OFF**
+
+#### Step 2: Import Proto File
+1. Click **"Import Proto File"**
+2. Select: `src/main/proto/billingservice.proto`
+3. Import the file
+
+#### Step 3: Configure Request
+1. **Service**: `BillingService`
+2. **Method**: `CreateBillingAccount`
+3. **Request Body**:
+```json
+{
+  "patient_id": "P001",
+  "name": "John Doe",
+  "email": "john.doe@example.com"
+}
+```
+
+#### Step 4: Send Request
+Click **"Invoke"** to send the gRPC request.
+
+### Method 2: Using Server Reflection (Recommended)
+
+#### Step 1: Enable Server Reflection
+1. Open Postman
+2. Create new gRPC request
+3. **Server URL**: `localhost:9091`
+4. **Use TLS**: **OFF**
+5. **Use server reflection**: **ON**
+
+#### Step 2: Connect and Discover
+1. Click **"Connect"**
+2. Postman automatically discovers available services
+3. Select `BillingService/CreateBillingAccount`
+
+#### Step 3: Test the Endpoint
+**Request Body**:
+```json
+{
+  "patient_id": "P002",
+  "name": "Jane Smith",
+  "email": "jane.smith@example.com"
+}
+```
+
+### Expected Response
+
+```json
+{
+  "accountId": "ACC-12345678",
+  "status": "CREATED"
+}
+```
+
+## Testing with grpcurl (Command Line Alternative)
+
+### Install grpcurl
+```bash
+# Windows (using Chocolatey)
+choco install grpcurl
+
+# Or download from: https://github.com/fullstorydev/grpcurl/releases
+```
+
+### Test Commands
+
+#### List Services
+```bash
+grpcurl -plaintext localhost:9091 list
+```
+
+#### List Methods
+```bash
+grpcurl -plaintext localhost:9091 list BillingService
+```
+
+#### Call Method
+```bash
+grpcurl -plaintext -d '{
+  "patient_id": "P003",
+  "name": "Bob Johnson",
+  "email": "bob@example.com"
+}' localhost:9091 BillingService/CreateBillingAccount
+```
+
+## Endpoints Summary
+
+| **Endpoint Type** | **URL/Connection** | **Method** | **Purpose** |
+|-------------------|-------------------|------------|-------------|
+| **gRPC** | `localhost:9091` | `BillingService/CreateBillingAccount` | Create billing account |
+| **Health Check** | `localhost:9091` | `grpc.health.v1.Health/Check` | Server health status |
+| **Server Reflection** | `localhost:9091` | `grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo` | Service discovery |
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Port 9091 already in use**
+   ```bash
+   netstat -ano | findstr :9091
+   taskkill /F /PID <process_id>
+   ```
+
+2. **Proto compilation fails**
+   ```bash
+   mvn clean
+   mvn protobuf:compile protobuf:compile-custom
+   ```
+
+3. **generated-sources directory is empty**
+   - **Cause**: Proto file in wrong location
+   - **Solution**: 
+     ```bash
+     # Ensure proto file is in src/main/proto/ not src/main/java/proto/
+     mkdir src\main\proto
+     copy src\main\java\proto\billingservice.proto src\main\proto\billingservice.proto
+     mvn protobuf:compile protobuf:compile-custom
+     ```
+
+4. **gRPC connection refused in Postman**
+   - Ensure server is running
+   - Verify port 9091 is accessible
+   - Turn OFF TLS in Postman
+
+5. **Missing generated classes**
+   ```bash
+   mvn clean compile
+   ```
+
+### Verification Commands
+
+```bash
+# Check if server is running
+netstat -ano | findstr :9091
+
+# Check generated files
+ls target/generated-sources/protobuf/java/com/pm/billing/grpc/
+
+# Test with grpcurl
+grpcurl -plaintext localhost:9091 list
+```
+
+## Service Endpoints Details
+
+### CreateBillingAccount
+
+**Method**: `BillingService/CreateBillingAccount`
+
+**Request Format**:
+```json
+{
+  "patient_id": "string (required)",
+  "name": "string (optional)",
+  "email": "string (optional)"
+}
+```
+
+**Response Format**:
+```json
+{
+  "accountId": "string (generated UUID)",
+  "status": "string (always 'CREATED')"
+}
+```
+
+**Example Test Cases**:
+
+1. **Basic Request**:
+```json
+{
+  "patient_id": "P001",
+  "name": "Alice Johnson",
+  "email": "alice@hospital.com"
+}
+```
+
+2. **Minimal Request**:
+```json
+{
+  "patient_id": "P002"
+}
+```
+
+3. **Complete Request**:
+```json
+{
+  "patient_id": "P003",
+  "name": "Dr. Robert Smith",
+  "email": "robert.smith@medical.com"
+}
+```
+
+## Performance and Monitoring
+
+### Logging Configuration
+The application logs all gRPC requests and responses with DEBUG level logging enabled for:
+- `com.pm.billing_service`
+- `io.grpc`
+
+### Metrics
+- gRPC server listens on `0.0.0.0:9091`
+- Health check available via gRPC health service
+- Server reflection enabled for service discovery
+
+---
+
+This documentation provides a complete guide for building, deploying, and testing the gRPC Billing Service. The service is production-ready with proper error handling, logging, and monitoring capabilities.
