@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  billing-service:
+    image: billing-service:latest
+    container_name: billing-service
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"   # HTTP port
+      - "9091:9091"   # gRPC port
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    networks:
+      - billing-network
+
+networks:
+  billing-network:
+    driver: bridge

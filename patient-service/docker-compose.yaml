@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: db
     ports:
-      - "5000:5432"
+      - "5432:5432"
     volumes:
       - C:\Users\pc\db_volumes\patient-service-db:/var/lib/postgresql/data
   backend:
@@ -23,6 +23,8 @@ services:
       - SPRING_DATASOURCE_USERNAME=postgres
       - SPRING_DATASOURCE_PASSWORD=postgres
       - SPRING_SQL_INIT_MODE=always
+      - SPRING_GRPC_BILLING_SERVICE_ADDRESS=billing-service
+      - SPRING_GRPC_BILLING_SERVICE_PORT=9091
     ports:
       - "4000:4000"
     depends_on:
