@@ -8,9 +8,28 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: db
     ports:
-      - "5000:5432"
+      - "5432:5432"
     volumes:
       - C:\Users\pc\db_volumes\patient-service-db:/var/lib/postgresql/data
+    networks:
+      - patient-network
+
+  billing-service:
+    container_name: billing-service
+    image: billing-service:latest
+    build:
+      context: ../billing-service
+      dockerfile: Dockerfile
+    environment:
+      - SPRING_APPLICATION_NAME=billing-service
+      - GRPC_SERVER_PORT=9091
+      - SERVER_PORT=5000
+    ports:
+      - "5000:5000"
+      - "9091:9091"
+    networks:
+      - patient-network
+
   backend:
     container_name: patient-api
     image: patient-service-backend:latest
@@ -23,7 +42,16 @@ services:
       - SPRING_DATASOURCE_USERNAME=postgres
       - SPRING_DATASOURCE_PASSWORD=postgres
       - SPRING_SQL_INIT_MODE=always
+      - BILLING_SERVICE_ADDRESS=billing-service
+      - BILLING_SERVICE_PORT=9091
     ports:
       - "4000:4000"
     depends_on:
       - postgres
+      - billing-service
+    networks:
+      - patient-network
+
+networks:
+  patient-network:
+    driver: bridge
