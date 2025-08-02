@@ -11,6 +11,7 @@ import com.pm.patient_service.dto.PatientRequestDTO;
 import com.pm.patient_service.dto.PatientResponseDTO;
 import com.pm.patient_service.exception.EmailAlredyExistException;
 import com.pm.patient_service.exception.PatientNotFoundException;
+import com.pm.patient_service.grpc.BillingServiceGrpcClient;
 import com.pm.patient_service.mapper.PatientMapper;
 import com.pm.patient_service.model.Patient;
 import com.pm.patient_service.repository.PatientRepository;
@@ -21,8 +22,12 @@ public class PatientService {
     @Autowired
     private PatientRepository patientRepository;
 
-    public PatientService(PatientRepository patientRepository) {
+    @Autowired
+    private final BillingServiceGrpcClient billingServiceGrpcClient;
+
+    public PatientService(PatientRepository patientRepository, BillingServiceGrpcClient billingServiceGrpcClient) {
         this.patientRepository = patientRepository;
+        this.billingServiceGrpcClient = billingServiceGrpcClient;
     }
 
     public List<PatientResponseDTO> getPatients(){
@@ -41,6 +46,12 @@ public class PatientService {
         }
         Patient patient = patientRepository.save(PatientMapper.tModel(patientRequestDTO));
         // You may want to return a DTO or the saved patient, adjust as needed
+
+        billingServiceGrpcClient.createBillingAccount(
+            patient.getId().toString(), 
+            patient.getName(), 
+            patient.getEmail()
+        );
         return PatientMapper.tDto(patient);
     }
 
