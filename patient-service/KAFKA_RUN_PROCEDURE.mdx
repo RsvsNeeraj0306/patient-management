@@ -1,0 +1,325 @@
+# Kafka Run Procedure for Patient Management Project
+
+This guide provides step-by-step instructions to run Kafka in your project using Docker Compose, verify its status, and connect your Spring Boot services.
+
+---
+
+## 1. Prerequisites
+
+- Docker and Docker Compose installed
+- Java and Maven installed (for building/running services)
+- All project dependencies installed (see `pom.xml`)
+
+---
+
+## 2. File Changes and Code Implementation
+
+### 2.1 Docker Compose Configuration (`docker-compose.yaml`)
+
+Added Kafka service configuration:
+
+```yaml
+  kafka:
+    container_name: kafka
+    image: bitnami/kafka:latest
+    restart: unless-stopped
+    environment:
+      KAFKA_CFG_NODE_ID: 0
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CLUSTER_ID: my-kafka-cluster
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    networks:
+      - patient-network
+```
+
+**Key Changes:**
+- Added KRaft mode configuration (no ZooKeeper needed)
+- Configured both internal (9092) and external (9094) ports
+- Set restart policy to `unless-stopped`
+- Connected to existing `patient-network`
+
+### 2.2 Maven Dependencies (`pom.xml`)
+
+Added Spring Kafka dependency:
+
+```xml
+<dependency>
+    <groupId>org.springframework.kafka</groupId>
+    <artifactId>spring-kafka</artifactId>
+    <version>3.3.0</version>
+</dependency>
+```
+
+**Note:** Removed `<type>pom</type>` which was causing compilation errors.
+
+### 2.3 Kafka Configuration Class (`src/main/java/com/pm/patient_service/config/KafkaConfig.java`)
+
+Created Kafka producer configuration:
+
+```java
+package com.pm.patient_service.config;
+
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ProducerFactory;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@Configuration
+public class KafkaConfig {
+
+    @Value("${spring.kafka.bootstrap-servers:kafka:9092}")
+    private String bootstrapServers;
+
+    @Bean
+    public ProducerFactory<String, byte[]> producerFactory() {
+        Map<String, Object> configProps = new HashMap<>();
+        configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        configProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        configProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
+        configProps.put(ProducerConfig.ACKS_CONFIG, "all");
+        configProps.put(ProducerConfig.RETRIES_CONFIG, 3);
+        configProps.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);
+        configProps.put(ProducerConfig.LINGER_MS_CONFIG, 1);
+        configProps.put(ProducerConfig.BUFFER_MEMORY_CONFIG, 33554432);
+        
+        return new DefaultKafkaProducerFactory<>(configProps);
+    }
+
+    @Bean
+    public KafkaTemplate<String, byte[]> kafkaTemplate() {
+        return new KafkaTemplate<>(producerFactory());
+    }
+}
+```
+
+### 2.4 Kafka Producer Service (`src/main/java/com/pm/patient_service/kafka/KafkaProducer.java`)
+
+Implemented Kafka producer for patient events:
+
+```java
+package com.pm.patient_service.kafka;
+
+import com.pm.patient_service.model.Patient;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Service;
+import patient.events.PatientEvent;
+
+@Slf4j
+@Service
+public class KafkaProducer {
+
+    private final KafkaTemplate<String, byte[]> kafkaTemplate;
+
+    public KafkaProducer(KafkaTemplate<String, byte[]> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
+
+    public void sendEvent(Patient patient) {
+        PatientEvent event = PatientEvent.newBuilder()
+                .setPatientId(patient.getId().toString())
+                .setName(patient.getName())
+                .setEmail(patient.getEmail())
+                .setEventType("PATIENT_CREATED")
+                .build();
+        try {
+            kafkaTemplate.send("patient", event.toByteArray());
+            log.info("Successfully sent patient event for: {}", patient.getId());
+        } catch (Exception e) {
+            log.error("Error sending event: {}", event, e);
+        }
+    }
+}
+```
+
+### 2.5 Application Properties (`src/main/resources/application.properties`)
+
+Added Kafka configuration:
+
+```properties
+# Kafka Configuration
+spring.kafka.bootstrap-servers=kafka:9092
+spring.kafka.producer.key-serializer=org.apache.kafka.common.serialization.StringSerializer
+spring.kafka.producer.value-serializer=org.apache.kafka.common.serialization.ByteArraySerializer
+```
+
+### 2.6 Protocol Buffers (Assumed)
+
+Based on the code, you likely have a Protocol Buffers definition for `PatientEvent`:
+
+```protobuf
+// patient_events.proto
+syntax = "proto3";
+
+package patient.events;
+
+message PatientEvent {
+    string patient_id = 1;
+    string name = 2;
+    string email = 3;
+    string event_type = 4;
+}
+```
+
+### 2.7 Integration in Service Layer
+
+To use the Kafka producer in your patient service:
+
+```java
+@Service
+public class PatientService {
+    
+    private final KafkaProducer kafkaProducer;
+    
+    public PatientService(KafkaProducer kafkaProducer) {
+        this.kafkaProducer = kafkaProducer;
+    }
+    
+    public Patient createPatient(Patient patient) {
+        // Save patient to database
+        Patient savedPatient = patientRepository.save(patient);
+        
+        // Send event to Kafka
+        kafkaProducer.sendEvent(savedPatient);
+        
+        return savedPatient;
+    }
+}
+```
+
+---
+
+## 3. Start Kafka and All Services
+
+Open a terminal in the `patient-service` directory and run:
+
+```bash
+# Start all services (including Kafka)
+docker-compose up -d
+```
+
+Or, to start only Kafka:
+
+```bash
+docker-compose up -d kafka
+```
+
+---
+
+## 4. Exposed Ports
+
+- **Internal (container-to-container):** `kafka:9092`
+- **External (host-to-container):** `localhost:9094`
+
+Make sure your `docker-compose.yaml` includes:
+
+```yaml
+  kafka:
+    ...
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+```
+
+---
+
+## 5. Verify Kafka is Running
+
+Check the status of all containers:
+
+```bash
+docker-compose ps
+```
+
+Check Kafka logs:
+
+```bash
+docker-compose logs kafka
+```
+
+---
+
+## 6. Kafka CLI Operations (Optional)
+
+To run Kafka CLI commands, enter the Kafka container:
+
+```bash
+docker-compose exec kafka bash
+```
+
+Example: List topics
+
+```bash
+kafka-topics.sh --bootstrap-server localhost:9092 --list
+```
+
+---
+
+## 7. Spring Boot Service Configuration
+
+In your `application.properties` (or `application.yml`):
+
+```properties
+spring.kafka.bootstrap-servers=kafka:9092
+```
+
+- Use `kafka:9092` for services running inside Docker Compose
+- Use `localhost:9094` for tools or apps running on your host machine
+
+---
+
+## 8. Stopping Services
+
+To stop all services:
+
+```bash
+docker-compose down
+```
+
+---
+
+## 9. Troubleshooting
+
+- **Check logs:** `docker-compose logs kafka`
+- **Check ports:** Ensure 9092 and 9094 are not used by other processes
+- **Test connection:**
+  ```bash
+  docker-compose exec patient-service telnet kafka 9092
+  ```
+- **Rebuild if dependencies change:**
+  ```bash
+  mvn clean install
+  ```
+
+---
+
+## 10. Useful Tips
+
+- Always create required topics before producing messages
+- For development, PLAINTEXT is used; for production, enable security
+- Restart policy is set to `unless-stopped` for Kafka
+
+---
+
+## 11. References
+
+- [Kafka Essentials](./KAFKA_ESSENTIALS.md)
+- [Kafka Setup Guide](./KAFKA_SETUP_GUIDE.mdx)
+- [Spring Kafka Docs](https://spring.io/projects/spring-kafka)
+- [Bitnami Kafka Docker](https://hub.docker.com/r/bitnami/kafka/)
