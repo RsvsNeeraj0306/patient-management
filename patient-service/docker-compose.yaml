@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   postgres:
     container_name: patient-db
@@ -30,8 +29,8 @@ services:
     networks:
       - patient-network
 
-  backend:
-    container_name: patient-api
+  patient-service:
+    container_name: patient-service
     image: patient-service-backend:latest
     build:
       context: .
@@ -44,6 +43,8 @@ services:
       - SPRING_SQL_INIT_MODE=always
       - BILLING_SERVICE_ADDRESS=billing-service
       - BILLING_SERVICE_PORT=9091
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
     ports:
       - "4000:4000"
     depends_on:
@@ -51,6 +52,27 @@ services:
       - billing-service
     networks:
       - patient-network
+
+  kafka:
+    container_name: kafka
+    image: bitnami/kafka:latest
+    restart: unless-stopped
+    environment:
+      KAFKA_CFG_NODE_ID: 0
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CLUSTER_ID: my-kafka-cluster
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    networks:
+      - patient-network
+
 
 networks:
   patient-network:
