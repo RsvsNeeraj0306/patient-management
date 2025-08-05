@@ -45,8 +45,8 @@ services:
       - BILLING_SERVICE_PORT=9091
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
 
-    ports:
-      - "4000:4000"
+#    ports:
+#      - "4000:4000"
     depends_on:
       - postgres
       - billing-service
@@ -63,6 +63,17 @@ services:
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     ports:
       - "4002:4002"
+    networks:
+      - patient-network
+
+  api-gateway:
+    container_name: api-gateway
+    image: api-gateway:latest
+    build:
+      context: ../api-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "4004:4004"
     networks:
       - patient-network
 
