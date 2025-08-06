@@ -5,11 +5,25 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: db
+      POSTGRES_DB: patient
     ports:
-      - "5432:5432"
+      - "5002:5432"
     volumes:
       - C:\Users\pc\db_volumes\patient-service-db:/var/lib/postgresql/data
+    networks:
+      - patient-network
+
+  auth-service-db:
+    container_name: auth-service-db
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: db
+    ports:
+      - "5001:5432"
+    volumes:
+      - C:\Users\pc\db_volumes\auth-service-db:/var/lib/postgresql/data
     networks:
       - patient-network
 
@@ -17,7 +31,7 @@ services:
     container_name: billing-service
     image: billing-service:latest
     build:
-      context: ../billing-service
+      context: billing-service
       dockerfile: Dockerfile
     environment:
       - SPRING_APPLICATION_NAME=billing-service
@@ -33,11 +47,11 @@ services:
     container_name: patient-service
     image: patient-service-backend:latest
     build:
-      context: .
+      context: patient-service
       dockerfile: Dockerfile
     environment:
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/db
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/patient
       - SPRING_DATASOURCE_USERNAME=postgres
       - SPRING_DATASOURCE_PASSWORD=postgres
       - SPRING_SQL_INIT_MODE=always
@@ -57,7 +71,7 @@ services:
     container_name: analytics-service
     image: analytics-service:latest
     build:
-      context: ../analytics-service
+      context: analytics-service
       dockerfile: Dockerfile
     environment:
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
@@ -70,10 +84,30 @@ services:
     container_name: api-gateway
     image: api-gateway:latest
     build:
-      context: ../api-gateway
+      context: api-gateway
       dockerfile: Dockerfile
     ports:
       - "4004:4004"
+    networks:
+      - patient-network
+
+  auth-service:
+    container_name: auth-service
+    image: auth-service:latest
+    build:
+      context: auth-service
+      dockerfile: Dockerfile
+    environment:
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://auth-service-db:5432/db
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - SPRING_SQL_INIT_MODE=always
+      - JWT_SECRET=6c17414c1321b2975979f9f2feab367d2deca2f8d54fe94d323cb8b9c2f454c4
+    ports:
+          - "4005:4005"
+    depends_on:
+      - auth-service-db
     networks:
       - patient-network
 
