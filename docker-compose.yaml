@@ -130,8 +130,6 @@ services:
       - "9094:9094"
     networks:
       - patient-network
-
-
 networks:
   patient-network:
     driver: bridge
